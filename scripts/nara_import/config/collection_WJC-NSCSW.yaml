@@ -1,0 +1,50 @@
+# WJC-NSCSW Collection Configuration
+
+collection:
+  id: WJC-NSCSW
+  name: "Records of the National Security Council Speechwriting Office (Clinton Administration)"
+  nara_collection_naid: 7388842
+
+  date_range:
+    start: "1993-01-01"
+    end: "2001-12-31"
+
+  s3_metadata_location: "s3://nara-national-archives-catalog/descriptions/collections/coll_WJC-NSCSW/"
+  jsonl_files: 72  # coll_WJC-NSCSW-1.jsonl through coll_WJC-NSCSW-72.jsonl
+
+  statistics:
+    total_file_units: 2053
+    total_digital_objects: 45936
+    objects_without_ocr: 43842  # 95.4%
+
+series:
+  - nara_naid: 7585787
+    name: "Antony Blinken's Files"
+    date_range:
+      start: "1994-01-01"
+      end: "1998-12-31"
+
+  - nara_naid: 7585788
+    name: "Robert Boorstin's Files"
+    date_range:
+      start: "1994-01-01"
+      end: "1995-12-31"
+
+  - nara_naid: 7585791
+    name: "Paul Orzulak's Files"
+    date_range:
+      start: "1999-01-01"
+      end: "2001-12-31"
+
+  - nara_naid: 7585792
+    name: "Thomas Rosshirt's Files"
+    date_range:
+      start: "2000-01-01"
+      end: "2001-12-31"
+
+import_settings:
+  api_base_url: "http://localhost:8787"
+  batch_size: 10  # Process N file units at a time
+  hash_chunk_size: 8192  # 8KB chunks for hashing
+  max_retries: 3
+  retry_delay: 5  # seconds

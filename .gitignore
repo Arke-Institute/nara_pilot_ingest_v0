@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+
+# Example and test data
+scripts/nara_import/example_structure/
+scripts/nara_import/EXAMPLE_STRUCTURE.md
+scripts/nara_import/sample_records.json
+sample_*.json
+bosnia_sample.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
