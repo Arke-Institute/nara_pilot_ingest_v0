@@ -130,6 +130,15 @@ class NARAImporter:
         self.institution_pi = pi
         self.stats["institutions_created"] += 1
 
+        # Link institution to Arke genesis block
+        try:
+            arke_block = self.api.get_arke_block()
+            arke_pi = arke_block["pi"]
+            logger.info(f"Linking institution to Arke genesis block ({arke_pi})")
+            self._add_child_to_entity(arke_pi, pi)
+        except Exception as e:
+            logger.warning(f"Failed to link institution to Arke block: {e}")
+
         return pi
 
     def import_collection(

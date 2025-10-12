@@ -41,13 +41,15 @@ aws s3 ls s3://nara-national-archives-catalog/descriptions/collections/coll_WJC-
 
 ### Data Model - Hierarchical Entity Structure
 
-The importer creates a four-level hierarchy stored in Arke IPFS:
+The importer creates a five-level hierarchy stored in Arke IPFS:
 
 ```
-Collection (e.g., WJC-NSCSW, naId: 7388842)
-└── Series (e.g., Antony Blinken's Files, naId: 7585787)
-    └── FileUnit (e.g., "Clinton - Address on Haiti", naId: 23902919)
-        └── DigitalObject (e.g., Page 1, objectId: 55251313)
+Arke Genesis Block (PI: 00000000000000000000000000)
+└── Institution (e.g., National Archives)
+    └── Collection (e.g., WJC-NSCSW, naId: 7388842)
+        └── Series (e.g., Antony Blinken's Files, naId: 7585787)
+            └── FileUnit (e.g., "Clinton - Address on Haiti", naId: 23902919)
+                └── DigitalObject (e.g., Page 1, objectId: 55251313)
 ```
 
 Each entity level:
@@ -55,6 +57,8 @@ Each entity level:
 - Stores catalog metadata in IPFS as dag-json
 - Links to children via `children_pi` arrays in manifest
 - Tracks NARA IDs (naId or objectId) for traceability
+
+**Arke Genesis Block**: The root entity (PI: `00000000000000000000000000`) that serves as the origin of the archive tree. All institutions are automatically linked as children of this block when first created. Access via `GET /arke` or `GET /genesis` API endpoints.
 
 ### Key Design Decisions
 
@@ -73,10 +77,11 @@ Each entity level:
 - Tracks NARA ID → PI mappings to avoid duplicate imports
 - Methods: `import_institution()`, `import_collection()`, `import_series()`, `import_fileunit()`, `import_digitalobject()`
 - Uses CAS (Compare-And-Swap) when appending children to entities
+- Automatically links new institutions to Arke genesis block
 
 **arke_api_client.py** (`ArkeClient` class)
 - HTTP client for Arke IPFS API (see API_SPEC.md for endpoints)
-- Key methods: `create_entity()`, `append_version()`, `upload_json()`, `resolve_pi()`
+- Key methods: `create_entity()`, `append_version()`, `upload_json()`, `resolve_pi()`, `get_arke_block()`
 - Handles errors: `ArkeAPIError`, `ArkeConflictError`, `ArkeNotFoundError`
 
 **nara_schema.py**

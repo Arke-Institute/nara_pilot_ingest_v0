@@ -141,6 +141,20 @@ class ArkeClient:
         """
         return self._request("GET", "/")
 
+    def get_arke_block(self) -> Dict[str, Any]:
+        """
+        Get the Arke genesis block (origin entity).
+
+        Returns:
+            Dictionary with entity details (pi, ver, tip, children_pi, etc.)
+
+        Examples:
+            >>> arke = client.get_arke_block()
+            >>> print(f"Arke PI: {arke['pi']}")
+            >>> print(f"Children: {arke['children_pi']}")
+        """
+        return self._request("GET", "/arke")
+
     def upload_bytes(self, data: bytes, name: str = "file") -> Tuple[str, int]:
         """
         Upload raw bytes to IPFS.
@@ -348,31 +362,39 @@ class ArkeClient:
 
     def list_entities(
         self,
-        offset: int = 0,
+        cursor: Optional[str] = None,
         limit: int = 100,
         include_metadata: bool = False
     ) -> Dict[str, Any]:
         """
-        List all entities with pagination.
+        List entities with cursor-based pagination.
 
         Args:
-            offset: Starting position (default: 0)
+            cursor: Pagination cursor from previous page's next_cursor (optional)
             limit: Max results per page (1-1000, default: 100)
             include_metadata: Include full entity details (default: False)
 
         Returns:
-            Dictionary with: entities, total, offset, limit, has_more
+            Dictionary with: entities, limit, next_cursor
 
         Examples:
+            >>> # First page
             >>> result = client.list_entities(limit=10)
             >>> for entity in result["entities"]:
             ...     print(f"{entity['pi']}: {entity['tip']}")
+            >>>
+            >>> # Next page
+            >>> if result["next_cursor"]:
+            ...     result = client.list_entities(cursor=result["next_cursor"], limit=10)
         """
         params = {
-            "offset": offset,
             "limit": limit,
             "include_metadata": str(include_metadata).lower()
         }
+
+        if cursor:
+            params["cursor"] = cursor
+
         return self._request("GET", "/entities", params=params)
 
     def resolve_pi(self, pi: str) -> Dict[str, str]:
