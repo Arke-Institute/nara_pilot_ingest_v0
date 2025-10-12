@@ -9,8 +9,8 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 
-from arke_api_client import ArkeClient, ArkeConflictError, ArkeNotFoundError
-from nara_schema import (
+from .arke_api_client import ArkeClient, ArkeConflictError, ArkeNotFoundError
+from .nara_schema import (
     create_institution_catalog_record,
     create_collection_catalog_record,
     create_series_catalog_record,
@@ -18,7 +18,7 @@ from nara_schema import (
     create_digitalobject_catalog_record,
     catalog_record_to_json,
 )
-from nara_hash_utils import download_and_hash_s3, create_content_hash_object, HashComputationError
+from .nara_hash_utils import download_and_hash_s3, create_content_hash_object, HashComputationError
 
 logger = logging.getLogger(__name__)
 
@@ -117,9 +117,18 @@ class NARAImporter:
         catalog_cid = self.api.upload_json(catalog_record)
         logger.debug(f"Uploaded institution catalog: {catalog_cid}")
 
-        # Create entity (API generates PI)
+        # Get Arke genesis block PI
+        try:
+            arke_block = self.api.get_arke_block()
+            arke_pi = arke_block["pi"]
+        except Exception as e:
+            logger.warning(f"Could not get Arke genesis block: {e}")
+            arke_pi = None
+
+        # Create entity with parent_pi to Arke genesis block
         result = self.api.create_entity(
             components={"catalog_record": catalog_cid},
+            parent_pi=arke_pi,  # Link to Arke genesis block
             note=f"Institution: {name}"
         )
 
@@ -130,14 +139,8 @@ class NARAImporter:
         self.institution_pi = pi
         self.stats["institutions_created"] += 1
 
-        # Link institution to Arke genesis block
-        try:
-            arke_block = self.api.get_arke_block()
-            arke_pi = arke_block["pi"]
-            logger.info(f"Linking institution to Arke genesis block ({arke_pi})")
-            self._add_child_to_entity(arke_pi, pi)
-        except Exception as e:
-            logger.warning(f"Failed to link institution to Arke block: {e}")
+        if arke_pi:
+            logger.info(f"Institution {pi} linked to Arke genesis block ({arke_pi})")
 
         return pi
 
@@ -184,9 +187,10 @@ class NARAImporter:
         catalog_cid = self.api.upload_json(catalog_record)
         logger.debug(f"Uploaded collection catalog: {catalog_cid}")
 
-        # Create entity (API generates PI)
+        # Create entity with parent_pi (API generates PI and creates bidirectional link)
         result = self.api.create_entity(
             components={"catalog_record": catalog_cid},
+            parent_pi=self.institution_pi,  # Automatic bidirectional link
             note=f"Collection: {title} (naId:{collection_naid})"
         )
 
@@ -196,10 +200,6 @@ class NARAImporter:
         # Track mapping
         self.nara_to_pi[nara_id] = pi
         self.stats["collections_created"] += 1
-
-        # Link to institution if it exists
-        if self.institution_pi:
-            self._add_child_to_entity(self.institution_pi, pi)
 
         return pi
 
@@ -251,9 +251,13 @@ class NARAImporter:
         catalog_cid = self.api.upload_json(catalog_record)
         logger.debug(f"Uploaded series catalog: {catalog_cid}")
 
-        # Create entity
+        # Get parent PI
+        parent_pi = self.nara_to_pi.get(str(parent_naid))
+
+        # Create entity with parent_pi (automatic bidirectional link)
         result = self.api.create_entity(
             components={"catalog_record": catalog_cid},
+            parent_pi=parent_pi,  # Automatic bidirectional link
             note=f"Series: {title} (naId:{series_naid})"
         )
 
@@ -263,11 +267,6 @@ class NARAImporter:
         # Track mapping
         self.nara_to_pi[nara_id] = pi
         self.stats["series_created"] += 1
-
-        # Link to parent collection
-        parent_pi = self.nara_to_pi.get(str(parent_naid))
-        if parent_pi:
-            self._add_child_to_entity(parent_pi, pi)
 
         return pi
 
@@ -334,9 +333,13 @@ class NARAImporter:
         catalog_cid = self.api.upload_json(catalog_record)
         logger.debug(f"Uploaded fileunit catalog: {catalog_cid}")
 
-        # Create entity (initially without children)
+        # Get parent PI
+        parent_pi = self.nara_to_pi.get(str(parent_series_naid))
+
+        # Create entity with parent_pi (automatic bidirectional link)
         result = self.api.create_entity(
             components={"catalog_record": catalog_cid},
+            parent_pi=parent_pi,  # Automatic bidirectional link
             note=f"FileUnit: {title} (naId:{fileunit_naid}, {len(digital_objects)} pages)"
         )
 
@@ -347,8 +350,7 @@ class NARAImporter:
         self.nara_to_pi[nara_id] = pi
         self.stats["fileunits_created"] += 1
 
-        # Import digital objects and link as children
-        child_pis = []
+        # Import digital objects (they will auto-link to this fileunit as parent)
         for i, obj in enumerate(digital_objects, start=1):
             try:
                 obj_pi = self.import_digitalobject(
@@ -362,20 +364,10 @@ class NARAImporter:
                     extracted_text=obj.get("extractedText"),
                     full_metadata=obj
                 )
-                child_pis.append(obj_pi)
 
             except Exception as e:
                 logger.error(f"Failed to import digital object {obj.get('objectId')}: {e}")
                 self.stats["errors"] += 1
-
-        # Add children to fileunit
-        if child_pis:
-            self._add_children_to_entity(pi, child_pis)
-
-        # Link to parent series
-        parent_pi = self.nara_to_pi.get(str(parent_series_naid))
-        if parent_pi:
-            self._add_child_to_entity(parent_pi, pi)
 
         return pi
 
@@ -448,9 +440,13 @@ class NARAImporter:
         catalog_cid = self.api.upload_json(catalog_record)
         logger.debug(f"Uploaded digital object catalog: {catalog_cid}")
 
-        # Create entity
+        # Get parent PI
+        parent_pi = self.nara_to_pi.get(str(parent_naid))
+
+        # Create entity with parent_pi (automatic bidirectional link)
         result = self.api.create_entity(
             components={"digital_object_metadata": catalog_cid},
+            parent_pi=parent_pi,  # Automatic bidirectional link
             note=f"Page {page_number}: {filename} (objectId:{object_id})"
         )
 
@@ -462,38 +458,6 @@ class NARAImporter:
         self.stats["digitalobjects_created"] += 1
 
         return pi
-
-    def _add_child_to_entity(self, parent_pi: str, child_pi: str):
-        """Add single child to entity"""
-        self._add_children_to_entity(parent_pi, [child_pi])
-
-    def _add_children_to_entity(self, parent_pi: str, child_pis: List[str]):
-        """Add children to entity via version append"""
-        if not child_pis:
-            return
-
-        if self.dry_run:
-            logger.debug(f"[DRY RUN] Would add {len(child_pis)} children to {parent_pi}")
-            return
-
-        try:
-            # Get current tip
-            resolved = self.api.resolve_pi(parent_pi)
-            current_tip = resolved["tip"]
-
-            # Append version with new children
-            result = self.api.append_version(
-                pi=parent_pi,
-                expect_tip=current_tip,
-                children_pi_add=child_pis,
-                note=f"Added {len(child_pis)} children"
-            )
-
-            logger.debug(f"Added {len(child_pis)} children to {parent_pi} (v{result['ver']})")
-
-        except (ArkeConflictError, ArkeNotFoundError) as e:
-            logger.error(f"Failed to add children to {parent_pi}: {e}")
-            self.stats["errors"] += 1
 
     def print_stats(self):
         """Print import statistics"""

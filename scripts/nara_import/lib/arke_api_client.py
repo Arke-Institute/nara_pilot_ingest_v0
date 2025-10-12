@@ -221,6 +221,7 @@ class ArkeClient:
         self,
         components: Dict[str, str],
         pi: Optional[str] = None,
+        parent_pi: Optional[str] = None,
         children_pi: Optional[List[str]] = None,
         note: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -230,6 +231,7 @@ class ArkeClient:
         Args:
             components: Dictionary mapping component names to CIDs
             pi: Optional Persistent Identifier (ULID format). If not provided, API will auto-generate.
+            parent_pi: Optional parent entity PI (automatically creates bidirectional link)
             children_pi: Optional list of child entity PIs
             note: Optional version note
 
@@ -247,10 +249,11 @@ class ArkeClient:
             ... )
             >>> print(entity["pi"])  # API-generated ULID
 
-            >>> # Or provide specific PI
-            >>> entity = client.create_entity(
-            ...     pi="01J8ME3H6FZ3KQ5W1P2XY8K7E5",
-            ...     components={"metadata": "bafybeiabc123..."}
+            >>> # Create with parent (automatic bidirectional link)
+            >>> child = client.create_entity(
+            ...     components={"metadata": "bafybeiabc123..."},
+            ...     parent_pi="01J8PARENT...",
+            ...     note="Child entity"
             ... )
         """
         payload = {
@@ -259,6 +262,9 @@ class ArkeClient:
 
         if pi:
             payload["pi"] = pi
+
+        if parent_pi:
+            payload["parent_pi"] = parent_pi
 
         if children_pi:
             payload["children_pi"] = children_pi

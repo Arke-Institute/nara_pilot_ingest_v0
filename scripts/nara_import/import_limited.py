@@ -18,8 +18,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime
 
-from arke_api_client import ArkeClient
-from nara_importer import NARAImporter
+from lib import ArkeClient, NARAImporter
 
 # Configure logging
 logging.basicConfig(
