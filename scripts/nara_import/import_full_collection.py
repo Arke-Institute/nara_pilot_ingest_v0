@@ -10,6 +10,7 @@ Estimated processing time: 4-8 hours
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -219,7 +220,7 @@ def load_checkpoint(checkpoint_file: str) -> Dict:
 def main():
     """Main full import function"""
     # Configuration
-    API_BASE_URL = "http://localhost:8787"
+    API_BASE_URL = os.getenv("API_BASE_URL", "https://api.arke.institute")
     COLLECTION_ID = "WJC-NSCSW"
     TOTAL_JSONL_FILES = 72
     CHECKPOINT_FILE = "import_checkpoint.json"

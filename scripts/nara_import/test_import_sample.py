@@ -8,6 +8,7 @@ Tests the complete import pipeline with 3 records.
 
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -174,7 +175,7 @@ def import_record(importer: NARAImporter, record: Dict) -> str:
 def main():
     """Main test import function"""
     # Configuration
-    API_BASE_URL = "http://localhost:8787"
+    API_BASE_URL = os.getenv("API_BASE_URL", "https://api.arke.institute")
     COLLECTION_ID = "WJC-NSCSW"
     NUM_RECORDS = 3
     SAMPLE_FILE = "sample_records.json"

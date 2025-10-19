@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  # NARA Import Script
+  # Connects to production Arke API at https://api.arke.institute
+  nara-import:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    environment:
+      # Production API (default in code, can override for local testing)
+      - API_BASE_URL=https://api.arke.institute
+    # Mount checkpoint file for resume capability
+    volumes:
+      - ../../import_checkpoint.json:/app/import_checkpoint.json
+      - ../../logs:/app/logs
+    # Override command if you want to run limited import instead
+    # command: python import_limited.py
+    # command: python test_import_sample.py
+
+# NOTE: For local API testing, override API_BASE_URL:
+#   docker-compose run -e API_BASE_URL=http://host.docker.internal:8787 nara-import

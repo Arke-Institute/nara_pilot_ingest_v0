@@ -1,0 +1,32 @@
+# Ignore Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Ignore logs
+*.log
+logs/
+
+# Ignore checkpoint files (will be mounted as volume)
+*checkpoint*.json
+
+# Ignore sample data
+sample_records.json
+
+# Ignore git
+.git/
+.gitignore
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore deployment directory itself when building
+deployment/

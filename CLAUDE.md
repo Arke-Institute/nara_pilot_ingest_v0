@@ -50,9 +50,12 @@ python import_full_collection.py
 ### API Health Check
 
 ```bash
-# Verify Arke API is running
-curl http://localhost:8787
+# Verify Arke API is running (production)
+curl https://api.arke.institute
 # Expected: {"service":"arke-ipfs-api","version":"0.1.0","status":"ok"}
+
+# For local development
+curl http://localhost:8787
 ```
 
 ### Working with NARA Data
@@ -172,7 +175,8 @@ Or use `scripts/nara_import/requirements.txt`
 # 1. Initialize
 from lib import ArkeClient, NARAImporter
 
-client = ArkeClient("http://localhost:8787")
+# Connect to production API (or set API_BASE_URL environment variable)
+client = ArkeClient("https://api.arke.institute")
 importer = NARAImporter(client, collection_id="WJC-NSCSW")
 
 # 2. Import institution (links to Arke genesis block automatically)
@@ -228,7 +232,12 @@ except ArkeAPIError as e:
 
 ## API Requirements
 
-The Arke IPFS API must be running at `http://localhost:8787` (configurable in collection YAML). Start the API server before running imports. Verify with: `curl http://localhost:8787`
+The import scripts connect to the production Arke IPFS API at `https://api.arke.institute` by default. This can be overridden using the `API_BASE_URL` environment variable for local development.
+
+**Production API**: `https://api.arke.institute`
+**Local development**: `http://localhost:8787` (set via `export API_BASE_URL=http://localhost:8787`)
+
+Verify API connectivity: `curl https://api.arke.institute`
 
 ## Scaling Notes
 

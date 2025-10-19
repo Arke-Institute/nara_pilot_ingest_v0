@@ -12,6 +12,7 @@ Estimated processing time: ~2.5 hours for 150 records (with 60s delays)
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -221,7 +222,7 @@ def load_checkpoint(checkpoint_file: str) -> Dict:
 def main():
     """Main limited import function"""
     # Configuration
-    API_BASE_URL = "http://localhost:8787"
+    API_BASE_URL = os.getenv("API_BASE_URL", "https://api.arke.institute")
     COLLECTION_ID = "WJC-NSCSW"
     TOTAL_JSONL_FILES = 72
     MAX_FILE_UNITS = 300  # Limit the number of file units to import
