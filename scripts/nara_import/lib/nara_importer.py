@@ -45,7 +45,9 @@ class NARAImporter:
         self,
         api_client: ArkeClient,
         collection_id: str,
-        dry_run: bool = False
+        dry_run: bool = False,
+        initial_mappings: Optional[Dict[str, str]] = None,
+        institution_pi: Optional[str] = None
     ):
         """
         Initialize NARA importer.
@@ -54,16 +56,18 @@ class NARAImporter:
             api_client: Arke API client instance
             collection_id: Collection identifier (e.g., "WJC-NSCSW")
             dry_run: If True, log actions but don't create entities
+            initial_mappings: Pre-existing NARA ID → PI mappings (for resume)
+            institution_pi: Pre-existing institution PI (for resume)
         """
         self.api = api_client
         self.collection_id = collection_id
         self.dry_run = dry_run
 
         # Single tracking dict: NARA ID → API-generated PI
-        self.nara_to_pi: Dict[str, str] = {}
+        self.nara_to_pi: Dict[str, str] = initial_mappings or {}
 
         # Track institution PI separately
-        self.institution_pi: Optional[str] = None
+        self.institution_pi: Optional[str] = institution_pi
 
         # Statistics
         self.stats = {
@@ -75,6 +79,12 @@ class NARAImporter:
             "bytes_hashed": 0,
             "errors": 0,
         }
+
+        # Log if resuming with existing mappings
+        if initial_mappings:
+            logger.info(f"Loaded {len(initial_mappings)} existing NARA ID → PI mappings")
+        if institution_pi:
+            logger.info(f"Using existing institution PI: {institution_pi}")
 
     def import_institution(
         self,

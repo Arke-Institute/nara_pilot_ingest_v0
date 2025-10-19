@@ -177,22 +177,43 @@ def import_record(importer: NARAImporter, record: Dict, record_num: int, total_r
     return fileunit_pi
 
 
-def save_checkpoint(checkpoint_file: str, file_number: int, record_index: int):
-    """Save checkpoint to resume later"""
+def save_checkpoint(checkpoint_file: str, file_number: int, record_index: int, importer: NARAImporter):
+    """
+    Save checkpoint to resume later.
+
+    Includes NARA ID → PI mappings to avoid duplicates on resume.
+    """
     with open(checkpoint_file, 'w') as f:
         json.dump({
             "file_number": file_number,
             "record_index": record_index,
-            "timestamp": datetime.now().isoformat()
-        }, f)
+            "timestamp": datetime.now().isoformat(),
+            "nara_to_pi": importer.nara_to_pi,
+            "institution_pi": importer.institution_pi
+        }, f, indent=2)
 
 
 def load_checkpoint(checkpoint_file: str) -> Dict:
-    """Load checkpoint if exists"""
+    """
+    Load checkpoint if exists.
+
+    Returns checkpoint dict with file position and NARA mappings.
+    """
     if Path(checkpoint_file).exists():
         with open(checkpoint_file) as f:
-            return json.load(f)
-    return {"file_number": 1, "record_index": 0}
+            checkpoint = json.load(f)
+            # Ensure backwards compatibility with old checkpoints
+            if "nara_to_pi" not in checkpoint:
+                checkpoint["nara_to_pi"] = {}
+            if "institution_pi" not in checkpoint:
+                checkpoint["institution_pi"] = None
+            return checkpoint
+    return {
+        "file_number": 1,
+        "record_index": 0,
+        "nara_to_pi": {},
+        "institution_pi": None
+    }
 
 
 def main():
@@ -222,15 +243,24 @@ def main():
         logger.error("Make sure the Arke API is running at http://localhost:8787")
         sys.exit(1)
 
-    # Initialize importer
+    # Load checkpoint (before initializing importer)
+    checkpoint = load_checkpoint(CHECKPOINT_FILE)
+    start_file = checkpoint["file_number"]
+    start_record_index = checkpoint["record_index"]
+    nara_to_pi = checkpoint["nara_to_pi"]
+    institution_pi = checkpoint["institution_pi"]
+
+    # Initialize importer with restored mappings
     logger.info("\n2. Initializing importer...")
     importer = NARAImporter(
         api_client=client,
         collection_id=COLLECTION_ID,
-        dry_run=False
+        dry_run=False,
+        initial_mappings=nara_to_pi,
+        institution_pi=institution_pi
     )
 
-    # Import institution
+    # Import institution (will skip if already exists in mappings)
     logger.info("\n3. Creating/retrieving institution...")
     importer.import_institution(
         name="National Archives",
@@ -238,13 +268,9 @@ def main():
         url="https://www.archives.gov/"
     )
 
-    # Load checkpoint
-    checkpoint = load_checkpoint(CHECKPOINT_FILE)
-    start_file = checkpoint["file_number"]
-    start_record_index = checkpoint["record_index"]
-
     if start_file > 1 or start_record_index > 0:
         logger.info(f"\n4. Resuming from checkpoint: file {start_file}, record index {start_record_index}")
+        logger.info(f"   Loaded {len(nara_to_pi)} existing NARA ID → PI mappings")
     else:
         logger.info("\n4. Starting fresh import...")
 
@@ -279,7 +305,7 @@ def main():
 
                     # Save checkpoint every 10 records
                     if total_records_processed % 10 == 0:
-                        save_checkpoint(CHECKPOINT_FILE, file_num, i + 1)
+                        save_checkpoint(CHECKPOINT_FILE, file_num, i + 1, importer)
                         elapsed = time.time() - start_time
                         rate = total_records_processed / elapsed if elapsed > 0 else 0
                         logger.info(f"Checkpoint: {total_records_processed} records processed, {rate:.2f} records/sec")
@@ -294,7 +320,7 @@ def main():
             start_record_index = 0
 
             # File completed, save checkpoint
-            save_checkpoint(CHECKPOINT_FILE, file_num + 1, 0)
+            save_checkpoint(CHECKPOINT_FILE, file_num + 1, 0, importer)
             logger.info(f"Completed file {file_num}/{TOTAL_JSONL_FILES}")
 
     except KeyboardInterrupt:

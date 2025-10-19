@@ -4,8 +4,12 @@
 
 This API manages versioned entities (PIs) as immutable IPLD manifests in IPFS, with mutable `.tip` pointers in MFS for fast lookups.
 
-**Base URL:** `https://your-worker.workers.dev`
-**Test URL:** `http://localhost:8787`
+**Production URL:** `https://api.arke.institute`
+**Local Development URL:** `http://localhost:8787`
+
+**Related Services:**
+- **IPFS Gateway:** `https://ipfs.arke.institute`
+- **IPFS Backend:** `https://ipfs-api.arke.institute` (Kubo RPC + Backend API)
 
 ### Architecture
 
@@ -36,6 +40,76 @@ Returns service status.
   "status": "ok"
 }
 ```
+
+---
+
+### Initialize Arke Origin Block
+
+**`POST /arke/init`**
+
+Initialize the Arke origin block (genesis entity) if it doesn't already exist. This is the root of the archive tree with a well-known PI.
+
+**Request:** No body required
+
+**Response:** `201 Created` (if created) or `200 OK` (if already exists)
+```json
+{
+  "message": "Arke origin block initialized",
+  "metadata_cid": "bafkreiabc123...",
+  "pi": "00000000000000000000000000",
+  "ver": 1,
+  "manifest_cid": "bafybeiabc789...",
+  "tip": "bafybeiabc789..."
+}
+```
+
+If already exists:
+```json
+{
+  "message": "Arke origin block already exists",
+  "pi": "00000000000000000000000000",
+  "ver": 2,
+  "ts": "2025-10-12T17:35:39.621Z",
+  "manifest_cid": "bafybeiabc789...",
+  "prev_cid": "bafybeiabc456...",
+  "components": {
+    "metadata": "bafkreiabc123..."
+  },
+  "children_pi": ["01K7..."],
+  "note": "..."
+}
+```
+
+**Side Effects:**
+- Creates Arke metadata JSON and stores in IPFS
+- Creates v1 manifest with well-known PI
+- Sets up `.tip` file in MFS
+- Appends to backend chain for indexing
+
+**Arke Metadata:**
+```json
+{
+  "name": "Arke",
+  "type": "root",
+  "description": "Origin block of the Arke Institute archive tree. Contains all institutional collections.",
+  "note": "Arke (ἀρχή) - Ancient Greek for 'origin' or 'beginning'"
+}
+```
+
+**Note:** The Arke PI is configurable via `ARKE_PI` environment variable (defaults to `00000000000000000000000000`).
+
+---
+
+### Get Arke Origin Block
+
+**`GET /arke`**
+
+Convenience endpoint to fetch the Arke origin block without needing to know the PI.
+
+**Response:** `200 OK` (same format as `GET /entities/{pi}`)
+
+**Errors:**
+- `404` - Arke origin block not initialized (call `POST /arke/init` first)
 
 ---
 
@@ -88,10 +162,10 @@ Download file content by CID. Streams bytes directly from IPFS.
 
 **`GET /entities`**
 
-List entities with cursor-based pagination. Uses hybrid snapshot + recent chain backend for scalable performance.
+List entities with cursor-based pagination. Uses event-sourced backend with snapshots for scalable performance.
 
 **Query Parameters:**
-- `cursor` - Pagination cursor (PI from previous page's `next_cursor`, optional)
+- `cursor` - Pagination cursor (CID from previous page's `next_cursor`, optional)
 - `limit` - Max results per page (1-1000, default: 100)
 - `include_metadata` - Include full entity details (default: false)
 
@@ -107,7 +181,7 @@ Without metadata:
     }
   ],
   "limit": 100,
-  "next_cursor": "01J8ME3H6FZ3KQ5W1P2XY8K7E5"
+  "next_cursor": "bafybeiabc789..."
 }
 ```
 
@@ -126,7 +200,7 @@ With `include_metadata=true`:
     }
   ],
   "limit": 100,
-  "next_cursor": "01J8ME3H6FZ3KQ5W1P2XY8K7E5"
+  "next_cursor": "bafybeiabc789..."
 }
 ```
 
@@ -134,19 +208,19 @@ With `include_metadata=true`:
 - First page: `GET /entities?limit=100`
 - Next page: `GET /entities?limit=100&cursor={next_cursor}`
 - `next_cursor` is `null` when no more pages available
-- Cursor is opaque (PI of last entity); do not construct manually
+- Cursor is an opaque CID returned by backend; do not construct manually
 
 **Performance:**
-- **Latest entities**: < 100ms (queries recent chain)
-- **Deep pagination**: < 500ms (queries chunked snapshots)
-- **O(1) chunk access** for arbitrary offsets
+- **Latest entities**: < 100ms (queries from snapshot)
+- **Deep pagination**: < 500ms (cursor-based navigation)
+- Sub-100ms queries regardless of total entity count
 - Scales to millions of entities without performance degradation
 
 **Implementation:**
-- Recent entities (< 10K) queried from linked list chain
-- Historical entities queried from chunked snapshots (10K entries/chunk)
-- Backend automatically appends new entities to chain
-- Periodic snapshot rebuilds consolidate chain into immutable snapshots
+- Entity list queried from latest snapshot
+- Backend tracks all creates/updates via event stream
+- Periodic snapshots capture complete entity list with event checkpoint
+- Event stream enables incremental sync for mirroring clients
 
 **Errors:**
 - `400` - Invalid pagination params (limit not 1-1000 or invalid cursor format)
@@ -169,6 +243,7 @@ Create new entity with v1 manifest. Automatically appends entity to backend chai
     "image": "bafybeiabc456..."
   },
   "children_pi": ["01GX...", "01GZ..."],  // optional
+  "parent_pi": "01J8ME3H6FZ3KQ5W1P2XY8K7E5",  // optional; auto-updates parent
   "note": "Initial version"  // optional
 }
 ```
@@ -184,16 +259,25 @@ Create new entity with v1 manifest. Automatically appends entity to backend chai
 ```
 
 **Side Effects:**
-- Manifest stored in IPFS as dag-json
+- Manifest stored in IPFS as dag-json with `parent_pi` field set (if provided)
 - `.tip` file created in MFS for fast lookups
-- Entity appended to backend recent chain for indexing
+- "create" event appended to backend event stream for tracking
 - Entity immediately appears in `/entities` listings
+- **If `parent_pi` provided:** Parent entity automatically updated with new child in `children_pi` array
+
+**Bidirectional Relationships:**
+When creating an entity with `parent_pi`, the API automatically maintains bidirectional relationships:
+1. Child entity gets `parent_pi` field set in manifest
+2. Parent entity automatically appends new child to its `children_pi` array (creates new version)
+3. Both entities are updated atomically
+
+This allows seamless graph traversal in both directions without manual coordination.
 
 **Errors:**
 - `400` - Invalid request body
 - `409` - PI already exists
 
-**Note:** Chain append is an optimization and happens asynchronously. Entity creation succeeds even if backend is temporarily unavailable.
+**Note:** Event tracking is an optimization and happens asynchronously. Entity creation succeeds even if backend is temporarily unavailable. Parent updates also happen asynchronously and are logged if they fail.
 
 ---
 
@@ -219,6 +303,7 @@ Fetch latest manifest for entity.
     "image": "bafybeiabc456..."
   },
   "children_pi": ["01GX..."],
+  "parent_pi": "01J8PARENT...",  // optional: parent entity PI
   "note": "Updated metadata"
 }
 ```
@@ -256,6 +341,12 @@ Append new version (CAS-protected).
   "tip": "bafybeinew789..."
 }
 ```
+
+**Bidirectional Relationships:**
+When using `children_pi_add` or `children_pi_remove`, the API automatically maintains bidirectional relationships:
+- **Adding children:** Each child entity is automatically updated with `parent_pi` set to this entity's PI
+- **Removing children:** Each removed child entity has its `parent_pi` field cleared
+- All affected entities get new versions with descriptive notes
 
 **Errors:**
 - `400` - Invalid request body
@@ -337,6 +428,13 @@ Update parent-child relationships.
 
 **Response:** `201 Created` (same format as append version)
 
+**Bidirectional Relationships:**
+This endpoint automatically maintains bidirectional relationships:
+- **Adding children:** Each child entity is automatically updated with `parent_pi` set to parent's PI
+- **Removing children:** Each removed child entity has its `parent_pi` field cleared
+- Parent's `parent_pi` field is preserved across updates
+- All affected entities get new versions with descriptive notes
+
 **Errors:**
 - `400` - Invalid request body
 - `404` - Parent not found
@@ -402,10 +500,17 @@ All errors return JSON:
     "metadata": { "/": "bafybeimeta..." },
     "image": { "/": "bafybeiimg..." }
   },
-  "children_pi": ["01GX...", "01GZ..."],
+  "children_pi": ["01GX...", "01GZ..."],  // optional: child entities
+  "parent_pi": "01J8PARENT...",  // optional: parent entity (for bidirectional traversal)
   "note": "Optional change note"
 }
 ```
+
+**Bidirectional Relationships:**
+- `children_pi`: Array of child entity PIs (parent → children navigation)
+- `parent_pi`: Single parent entity PI (child → parent navigation)
+- Automatically maintained by the API when using `parent_pi` in entity creation or relationship endpoints
+- Enables efficient graph traversal in both directions
 
 ### Tip (MFS)
 
@@ -431,51 +536,57 @@ All CIDs are CIDv1 (base32), e.g., `bafybeiabc123...`
 
 ## Backend Architecture
 
-### Snapshot + Linked List Hybrid System
+### Event Stream + Snapshot System
 
-The API delegates entity indexing to an IPFS Server backend (FastAPI) that manages a hybrid data structure:
+The API delegates entity indexing to an IPFS Server backend (FastAPI) that manages an event-sourced data structure:
 
 **Components:**
-1. **Recent Chain** - Linked list of newest entities (< 10K)
-   - Stored as dag-json chain entries in IPFS
-   - Each entry links to previous via `prev` field
-   - Fast append-only operations
-   - Queried for latest entity listings
+1. **Event Stream** - Time-ordered log of all creates and updates
+   - Stored as dag-json event entries in IPFS
+   - Each event links to previous via `prev` field
+   - Tracks both entity **creation** and **version updates**
+   - Events include: `type` (create/update), `pi`, `ver`, `tip_cid`, `ts`
+   - Enables complete change history and mirroring
 
-2. **Chunked Snapshots** - Immutable historical index
+2. **Snapshots** - Point-in-time entity index with event checkpoints
    - Periodic snapshots of all entities
-   - Split into 10K-entry chunks for O(1) random access
-   - Stored as dag-json with IPLD links to chunks
-   - Enables efficient deep pagination
+   - Each snapshot includes `event_cid` checkpoint for incremental sync
+   - Stored as dag-json with entity list
+   - Enables efficient bulk mirroring and recovery
 
 3. **Index Pointer** - Single source of truth
    - Stored in MFS at `/arke/index-pointer`
-   - Tracks current snapshot CID and chain head
-   - Maintains total entity count
+   - Tracks current snapshot CID and event stream head
+   - Maintains total entity and event counts
 
 **Query Strategy:**
-- **Offset 0-10K**: Query recent chain (fast append-only list)
-- **Offset > 10K**: Calculate chunk index, fetch specific chunk(s)
-- **Hybrid queries**: Combine chain + snapshot for complete results
+- **GET /entities**: Returns paginated entity list from latest snapshot
+- **GET /events**: Returns time-ordered event stream for change tracking
+- **GET /snapshot/latest**: Returns complete snapshot with event checkpoint
 
 **Lifecycle:**
-1. Entity created → Appended to recent chain
-2. Chain grows to 10K items → Trigger snapshot rebuild
-3. Snapshot rebuild: Merge chain + old snapshot → New chunked snapshot
-4. Reset chain to empty, update index pointer
+1. Entity created → Append "create" event to stream
+2. Version added → Append "update" event to stream
+3. Periodic snapshots capture current state + event checkpoint
+4. Clients can sync incrementally from checkpoint to head
+
+**Event Types:**
+- **create**: New entity added to system (ver typically 1)
+- **update**: Existing entity received new version (ver > 1)
 
 **Performance Benefits:**
 - No MFS directory traversal (was O(n) with n=40K+ entities)
-- O(1) chunk access for arbitrary pagination offsets
 - Sub-100ms queries regardless of total entity count
-- Scales to millions of entities
+- Event stream enables efficient mirroring and change tracking
+- Scales to millions of entities and events
 
 **Environment Variables:**
 - `IPFS_SERVER_API_URL` - Backend API endpoint (e.g., `http://localhost:3000`)
 
 **Backend Endpoints Used:**
-- `POST /chain/append` - Append new entity to chain
-- `GET /entities?limit=N&offset=M` - Query entities with pagination
-- `GET /index-pointer` - Get current system state
+- `POST /events/append` - Append create/update event to stream
+- `GET /entities?limit=N&cursor=C` - Query entities with pagination
+- `GET /events?limit=N&cursor=C` - Query event stream
+- `GET /snapshot/latest` - Get latest snapshot with checkpoint
 
-See `SNAPSHOT_LINKED_LIST_IMPLEMENTATION.md` for complete backend architecture details.
+See `BACKEND_API_WALKTHROUGH.md` for complete backend architecture and event stream details.
