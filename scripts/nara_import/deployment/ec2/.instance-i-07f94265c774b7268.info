@@ -1,7 +1,0 @@
-INSTANCE_ID=i-07f94265c774b7268
-PUBLIC_IP=3.82.212.13
-KEY_NAME=nara-import-key-20251019
-KEY_PATH=/Users/chim/.ssh/nara-import-key-20251019.pem
-REGION=us-east-1
-MODE=test
-LAUNCHED_AT=2025-10-19T23:14:43Z
